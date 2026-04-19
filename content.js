@@ -1,7 +1,7 @@
-// Content script for DIU Marks Auto-Fill Extension
+// Content script for DIU IntelliMarks Extension
 // This script runs on the marks sheet page
 
-console.log('DIU Marks Auto-Fill: Content script loaded');
+console.log('DIU IntelliMarks: Content script loaded');
 
 // Listen for messages from popup
 chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
@@ -13,126 +13,170 @@ chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
   }
 });
 
-// Function to fill marks data
+// Function to fill marks data - supports both old and new website
 async function fillMarksData(data, columnIndex, columnName) {
-  console.log('DIU Marks Auto-Fill: Filling data', { data, columnIndex, columnName });
-  
-  // Find the table
-  const table = document.querySelector('table');
+  console.log('DIU IntelliMarks: Filling data', { data, columnIndex, columnName });
+
+  // Find the table with student data
+  const table = findMarksTable();
   if (!table) {
-    return { success: false, message: 'No table found on this page' };
+    return { success: false, message: 'No marks table found on this page' };
   }
 
   const tbody = table.querySelector('tbody');
-  if (!tbody) {
-    return { success: false, message: 'No table body found' };
-  }
+  // If no tbody, use the table itself
+  const rowsContainer = tbody || table;
+  const rows = rowsContainer.querySelectorAll('tr');
 
-  const rows = tbody.querySelectorAll('tr');
+  console.log('DIU IntelliMarks: Found', rows.length, 'rows');
+
   let filledCount = 0;
   let matchedCount = 0;
 
   for (const row of rows) {
     const cells = row.querySelectorAll('td');
-    if (cells.length === 0) continue;
+    if (cells.length === 0) {
+      console.log('DIU IntelliMarks: Skipping row - no td cells');
+      continue;
+    }
 
     // Get student ID from first column
     const studentIdCell = cells[0];
     const studentId = studentIdCell.textContent.trim();
+    console.log('DIU IntelliMarks: Row student ID:', studentId, 'Available:', data[studentId]);
 
     // Check if we have data for this student
     if (data[studentId] !== undefined) {
       matchedCount++;
-      
-      // Get the target cell (columnIndex is 0-based, cells are also 0-based)
+      console.log('DIU IntelliMarks: Match found for', studentId);
+
+      // Get the target cell
       const targetCell = cells[columnIndex];
-      
+
       if (targetCell) {
-        // Find the editable span inside the cell
-        const editableSpan = targetCell.querySelector('.editable-cell');
-        
-        if (editableSpan) {
-          const score = data[studentId];
-          
-          // Simulate clicking the cell to make it editable
-          editableSpan.click();
-          
-          // Wait a moment for the cell to become editable
-          await new Promise(resolve => setTimeout(resolve, 50));
-          
-          // Check if it became an input
-          const input = targetCell.querySelector('input');
-          
-          if (input) {
-            // Set the value
-            input.value = score;
-            input.dispatchEvent(new Event('input', { bubbles: true }));
-            input.dispatchEvent(new Event('change', { bubbles: true }));
-            
-            // Simulate Enter key to save
-            const enterEvent = new KeyboardEvent('keydown', {
-              key: 'Enter',
-              code: 'Enter',
-              keyCode: 13,
-              bubbles: true
-            });
-            input.dispatchEvent(enterEvent);
-            
-            filledCount++;
-          } else {
-            // If no input appeared, try setting text content directly
-            editableSpan.textContent = score;
-            
-            // Trigger any necessary events
-            editableSpan.dispatchEvent(new Event('blur', { bubbles: true }));
-            
-            filledCount++;
-          }
-          
-          // Small delay between each cell to avoid overwhelming the page
-          await new Promise(resolve => setTimeout(resolve, 100));
-        }
+        const score = data[studentId];
+        console.log('DIU IntelliMarks: Filling', score, 'at column', columnIndex);
+        const filled = await fillCell(targetCell, score);
+        if (filled) filledCount++;
+
+        // Small delay between each cell
+        await new Promise(resolve => setTimeout(resolve, 100));
+      } else {
+        console.log('DIU IntelliMarks: No target cell at column', columnIndex);
       }
     }
   }
 
-  console.log(`DIU Marks Auto-Fill: Matched ${matchedCount} students, filled ${filledCount} cells`);
+  console.log(`DIU IntelliMarks: Matched ${matchedCount} students, filled ${filledCount} cells`);
 
   if (matchedCount === 0) {
     return { success: false, message: 'No matching students found. Make sure the Student IDs match exactly (e.g., 232-15-012).' };
   }
 
-  return { 
-    success: true, 
+  return {
+    success: true,
     filledCount: filledCount,
     message: `Filled ${filledCount} out of ${matchedCount} matched students`
   };
 }
 
-// Also inject a floating button on the page for quick access
-function injectFloatingButton() {
-  // Check if button already exists
-  if (document.getElementById('diu-marks-autofill-btn')) return;
+// Find the marks table on the page
+function findMarksTable() {
+  // Try to find table with student data
+  const tables = document.querySelectorAll('table');
+  console.log('DIU IntelliMarks: Found', tables.length, 'tables');
 
-  const btn = document.createElement('button');
-  btn.id = 'diu-marks-autofill-btn';
-  btn.innerHTML = `
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-      <path d="M13 10V3L4 14h7v7l9-11h-7z"/>
-    </svg>
-    <span>Auto-Fill Marks</span>
-  `;
-  btn.onclick = function() {
-    // Open the extension popup
-    chrome.runtime.sendMessage({ action: 'openPopup' });
-  };
-  
-  document.body.appendChild(btn);
+  for (const table of tables) {
+    // Check if table has student ID pattern in tbody rows
+    const tbody = table.querySelector('tbody');
+    const rows = tbody ? tbody.querySelectorAll('tr') : table.querySelectorAll('tr');
+
+    for (const row of rows) {
+      const firstCell = row.querySelector('td');
+      if (firstCell) {
+        const text = firstCell.textContent.trim();
+        console.log('DIU IntelliMarks: Checking cell text:', text);
+        if (text.match(/^\d{3}-\d{2}-\d{3}$/)) {
+          console.log('DIU IntelliMarks: Found table with student ID:', text);
+          return table;
+        }
+      }
+    }
+  }
+
+  // Fallback to first table if no specific match found
+  console.log('DIU IntelliMarks: Using first table as fallback');
+  return tables[0];
 }
 
-// Try to inject button when page loads
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', injectFloatingButton);
-} else {
-  injectFloatingButton();
+// Fill a single cell with the score - handles both old and new website formats
+async function fillCell(cell, score) {
+  console.log('DIU IntelliMarks: fillCell called with score:', score);
+
+  // Method 1: New website - direct input element
+  const input = cell.querySelector('input[type="number"]');
+  if (input) {
+    console.log('DIU IntelliMarks: Found number input, filling value');
+
+    // Focus the input first
+    input.focus();
+    await new Promise(resolve => setTimeout(resolve, 50));
+
+    // Clear and set value
+    input.value = '';
+    input.value = score.toString();
+
+    // Trigger multiple events to ensure the website detects the change
+    input.dispatchEvent(new Event('focus', { bubbles: true }));
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.dispatchEvent(new Event('keyup', { bubbles: true }));
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+
+    // Blur to save
+    input.blur();
+    input.dispatchEvent(new Event('blur', { bubbles: true }));
+
+    console.log('DIU IntelliMarks: Input filled with', score);
+    return true;
+  }
+
+  // Method 2: Old website - editable-cell span
+  const editableSpan = cell.querySelector('.editable-cell');
+  if (editableSpan) {
+    console.log('DIU IntelliMarks: Found editable-cell span');
+    editableSpan.click();
+    await new Promise(resolve => setTimeout(resolve, 50));
+
+    // Check if input appeared after click
+    const dynamicInput = cell.querySelector('input');
+    if (dynamicInput) {
+      dynamicInput.value = score;
+      dynamicInput.dispatchEvent(new Event('input', { bubbles: true }));
+      dynamicInput.dispatchEvent(new Event('change', { bubbles: true }));
+
+      const enterEvent = new KeyboardEvent('keydown', {
+        key: 'Enter',
+        code: 'Enter',
+        keyCode: 13,
+        bubbles: true
+      });
+      dynamicInput.dispatchEvent(enterEvent);
+    } else {
+      editableSpan.textContent = score;
+      editableSpan.dispatchEvent(new Event('blur', { bubbles: true }));
+    }
+
+    return true;
+  }
+
+  // Method 3: Try contenteditable
+  if (cell.isContentEditable || cell.querySelector('[contenteditable="true"]')) {
+    const editable = cell.isContentEditable ? cell : cell.querySelector('[contenteditable="true"]');
+    editable.textContent = score;
+    editable.dispatchEvent(new Event('blur', { bubbles: true }));
+    return true;
+  }
+
+  console.log('DIU IntelliMarks: No input found in cell');
+  return false;
 }

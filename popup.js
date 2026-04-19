@@ -28,9 +28,16 @@ document.addEventListener('DOMContentLoaded', function() {
   const actionStatus = document.getElementById('actionStatus');
   const savedDataPreview = document.getElementById('savedDataPreview');
 
+  // Column mapping for new DIU portal (newweb/index.html)
   const columnMapping = {
-    'attendance': 2, 'quiz1': 3, 'quiz2': 4, 'quiz3': 5,
-    'presentation': 6, 'assignment': 7, 'midterm': 8, 'final': 9
+    'attendance': 2,   // ATTM column
+    'quiz1': 3,        // Q1 column
+    'quiz2': 4,        // Q2 column
+    'quiz3': 5,        // Q3 column
+    'presentation': 7, // Presn column
+    'assignment': 8,   // Assign column
+    'midterm': 9,      // MT column
+    'final': 14        // Final column (after MT Im, UTM, Abs, WH)
   };
 
   loadSavedData();
